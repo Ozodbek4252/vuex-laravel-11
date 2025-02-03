@@ -1,0 +1,115 @@
+services:
+    vuex:
+        image: kooldev/php:8.3
+        container_name: vuex
+        working_dir: /vuex
+        restart: always
+        networks:
+            - internal
+            - nginx_network
+        volumes:
+            - ".:/vuex"
+            - "./docker/php/php-ini-overrides.ini:/etc/php/8.3/fpm/conf.d/99-overrides.ini"
+        links:
+            - vuex-database
+        ports:
+            - "8080:8080"
+        depends_on:
+            - vuex-database
+        environment:
+            - PHP_EXECUTABLE_PATH=/usr/local/bin/php
+    vuex-nginx:
+        image: nginx:alpine
+        container_name: vuex-nginx
+        restart: always
+        working_dir: /vuex
+        networks:
+            - internal
+            - nginx_network
+        ports:
+            - "9007:80"
+        volumes:
+            - .:/vuex
+            - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+        depends_on:
+            - vuex
+    vuex-composer:
+        image: composer:latest
+        container_name: vuex-composer
+        working_dir: /vuex
+        command: update --ignore-platform-reqs
+        volumes:
+            - .:/vuex
+        restart: on-failure
+        depends_on:
+            - vuex
+    vuex-database:
+        image: mariadb:latest
+        restart: always
+        container_name: vuex-database
+        working_dir: /vuex
+        networks:
+            - internal
+            - nginx_network
+        # command: mysqld --skip-grant-tables
+        environment:
+            - MYSQL_ROOT_PASSWORD=password
+            - MYSQL_DATABASE=vuex
+            - MYSQL_USER=root
+            - MYSQL_PASSWORD=password
+        volumes:
+            # - ./waio.sql:/docker-entrypoint-initdb.d/waio.sql
+            - .:/vuex
+            - ./vuex-database:/var/lib/mysql
+        ports:
+            - "8006:3306"
+        command: --max_allowed_packet=256M # Add this line
+    vuex-redis:
+        image: "redis:alpine"
+        ports:
+            - "${FORWARD_REDIS_PORT:-6383}:6383"
+        volumes:
+            - vuex-redis:/data
+        networks:
+            - internal
+            - nginx_network
+        command: redis-server --save 20 1 --loglevel warning --requirepass eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81
+
+    app:
+        image: node:16-alpine
+        working_dir: /app
+        volumes:
+            - .:/app
+        command: sh -c "npm install && npm run build"
+    vuex-npm:
+        image: node:20-alpine
+        container_name: vuex-npm
+        working_dir: /vuex
+        volumes:
+            - ".:/vuex"
+        depends_on:
+            - vuex
+    adminer:
+        image: adminer
+        restart: always
+        ports:
+            - "9003:8080"
+        networks:
+            - internal
+            - nginx_network
+        depends_on:
+            - vuex-database
+        container_name: vuex-adminer
+networks:
+    nginx_network:
+        external: true
+    internal:
+        driver: overlay
+        name: "global"
+        attachable: true
+        external: true
+volumes:
+    vuex-database:
+        driver: local
+    vuex-redis:
+        driver: local
